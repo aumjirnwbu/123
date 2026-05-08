@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartFarm Plant1 — Auto Watering Dashboard</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Sora:wght@300;400;500;600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Sora',sans-serif;background:#0d1a0e;color:#e8f5e0;min-height:100vh}
+.topbar{background:#0d1a0e;border-bottom:1px solid #1e3a1f;padding:13px 22px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:33px;height:33px;background:#3B6D11;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.brand-name{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#C0DD97}
+.brand-sub{font-size:10px;color:#5DCAA5;letter-spacing:2px;text-transform:uppercase}
+.pill{display:flex;align-items:center;gap:6px;background:#1a2e1b;border:1px solid #2a4a2c;border-radius:20px;padding:5px 13px;font-size:11px;color:#C0DD97}
+.dot{width:7px;height:7px;border-radius:50%;background:#639922;animation:blink 2s infinite}
+.dot.off{background:#E24B4A;animation:none}
+.dot.warn{background:#EF9F27;animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.main{padding:18px 22px;max-width:1080px;margin:0 auto}
+.conn-row{background:#111f12;border:1px solid #1e3a1f;border-radius:12px;padding:14px 18px;margin-bottom:16px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.fg{display:flex;flex-direction:column;gap:4px;flex:1;min-width:110px}
+.fl{font-size:10px;color:#6a9a6c;letter-spacing:.5px}
+.fi{background:#0d1a0e;border:1px solid #2a4a2c;border-radius:7px;padding:7px 10px;font-family:'Space Mono',monospace;font-size:11px;color:#C0DD97;outline:none;width:100%;transition:border-color .2s}
+.fi:focus{border-color:#1D9E75}
+.bcn{background:#3B6D11;border:none;border-radius:7px;padding:7px 16px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:#fff;cursor:pointer;height:34px;white-space:nowrap;transition:background .2s}
+.bcn:hover{background:#27500A}
+.bcn.disc{background:#A32D2D}
+.bdemo{background:transparent;border:1px solid #2a4a2c;border-radius:7px;padding:7px 14px;font-family:'Space Mono',monospace;font-size:11px;color:#6a9a6c;cursor:pointer;height:34px;transition:all .2s}
+.bdemo:hover{border-color:#1D9E75;color:#C0DD97}
+.bdemo.on{background:rgba(29,158,117,.12);border-color:#1D9E75;color:#5DCAA5}
+.metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px}
+.mc{background:#111f12;border:1px solid #1e3a1f;border-radius:11px;padding:14px 16px;position:relative;overflow:hidden}
+.mc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:#3B6D11}
+.mc.warn::before{background:#EF9F27}
+.mc.danger::before{background:#E24B4A}
+.mc.pumping::before{background:#1D9E75}
+.mc.info::before{background:#378ADD}
+.ml{font-size:9px;letter-spacing:1.5px;color:#6a9a6c;text-transform:uppercase;margin-bottom:7px}
+.mv{font-family:'Space Mono',monospace;font-size:24px;font-weight:700;color:#C0DD97;line-height:1}
+.mu{font-size:12px;color:#6a9a6c;font-weight:400}
+.ms{font-size:10px;color:#6a9a6c;margin-top:4px}
+.mbar{background:#0d1a0e;border-radius:3px;height:4px;margin-top:8px;overflow:hidden}
+.mfill{height:100%;border-radius:3px;background:#3B6D11;transition:width .7s ease}
+.section-title{font-size:10px;letter-spacing:2px;color:#5DCAA5;text-transform:uppercase;margin-bottom:12px}
+.grid-main{display:grid;grid-template-columns:1fr 310px;gap:14px;margin-bottom:14px}
+.panel{background:#111f12;border:1px solid #1e3a1f;border-radius:12px;padding:16px 20px}
+.ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.pt{font-size:12px;font-weight:500;color:#C0DD97}
+.tbadge{font-family:'Space Mono',monospace;font-size:10px;background:#1a2e1b;border:1px solid #2a4a2c;border-radius:5px;padding:3px 8px;color:#6a9a6c}
+.chart-wrap{position:relative;height:200px;width:100%}
+.ctrl{display:flex;flex-direction:column;gap:10px}
+.pbtn{width:100%;background:transparent;border:1px solid #2a4a2c;border-radius:10px;padding:14px;cursor:pointer;text-align:center;transition:all .2s;position:relative;overflow:hidden}
+.pbtn:hover{border-color:#1D9E75;background:#1a2e1b}
+.pbtn.on{border-color:#1D9E75;background:rgba(29,158,117,.1)}
+.pbtn.on::after{content:'';position:absolute;inset:0;background:radial-gradient(circle,rgba(29,158,117,.2),transparent 70%);animation:rp 1.5s infinite}
+@keyframes rp{0%{transform:scale(.7);opacity:1}100%{transform:scale(1.5);opacity:0}}
+.pi{font-size:22px;display:block;margin-bottom:5px}
+.pl{font-size:12px;font-weight:500;color:#C0DD97}
+.ps{font-size:10px;color:#6a9a6c;margin-top:2px}
+.tpanel{background:#0d1a0e;border:1px solid #1e3a1f;border-radius:9px;padding:12px 14px}
+.tr{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.tr:last-child{margin-bottom:0}
+.trl{font-size:11px;color:#6a9a6c;min-width:78px}
+.trv{font-family:'Space Mono',monospace;font-size:11px;color:#C0DD97;min-width:36px;text-align:right}
+input[type=range]{-webkit-appearance:none;appearance:none;height:3px;background:#2a4a2c;border-radius:2px;flex:1;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:#3B6D11;cursor:pointer}
+.sim-panel{background:#111f12;border:1px solid #1e3a1f;border-radius:12px;padding:16px 20px;margin-bottom:14px}
+.sim-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.sim-card{background:#0d1a0e;border:1px solid #1e3a1f;border-radius:9px;padding:12px 14px}
+.big-slider-val{font-family:'Space Mono',monospace;font-size:28px;font-weight:700;color:#C0DD97;text-align:center;margin:6px 0}
+.big-slider-lbl{font-size:10px;color:#6a9a6c;text-align:center;letter-spacing:1px;text-transform:uppercase}
+.dial-bg{width:100%;height:8px;background:#1a2e1b;border-radius:4px;position:relative;overflow:visible;margin-top:26px;margin-bottom:10px}
+.dial-fill{height:8px;border-radius:4px;background:#3B6D11;transition:width .5s ease;position:relative}
+.dial-thumb{width:16px;height:16px;border-radius:50%;background:#C0DD97;position:absolute;top:-4px;right:-8px;border:2px solid #3B6D11}
+.zone-marker{position:absolute;top:-14px;font-size:9px;font-family:'Space Mono',monospace;transform:translateX(-50%)}
+.zone-dry{color:#EF9F27}
+.zone-ok{color:#5DCAA5}
+.analysis-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.ac{background:#111f12;border:1px solid #1e3a1f;border-radius:12px;padding:15px 18px}
+.at{font-size:9px;color:#6a9a6c;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px}
+.av{font-family:'Space Mono',monospace;font-size:19px;font-weight:700;color:#C0DD97;margin-bottom:3px}
+.ad{font-size:10px;color:#6a9a6c}
+.apb{height:3px;background:#1a2e1b;border-radius:2px;margin-top:8px;overflow:hidden}
+.apf{height:100%;border-radius:2px;background:#1D9E75;transition:width .6s}
+.event-log-panel{background:#111f12;border:1px solid #1e3a1f;border-radius:12px;padding:16px 20px;margin-bottom:14px}
+.event-table{width:100%;border-collapse:collapse;font-family:'Space Mono',monospace;font-size:10px}
+.event-table th{color:#6a9a6c;font-weight:400;padding:4px 8px;text-align:left;border-bottom:1px solid #1e3a1f}
+.event-table td{padding:5px 8px;border-bottom:1px solid #1a2e1b;color:#C0DD97}
+.event-table td.muted{color:#6a9a6c}
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:9px;font-family:'Space Mono',monospace}
+.badge.auto{background:#0f2a1a;color:#5DCAA5;border:1px solid #1D9E75}
+.badge.force{background:#1a1a2e;color:#85B7EB;border:1px solid #378ADD}
+.badge.wokwi{background:#2a1a2e;color:#ED93B1;border:1px solid #D4537E}
+.logpanel{background:#111f12;border:1px solid #1e3a1f;border-radius:12px;padding:14px 18px;margin-bottom:14px}
+.loglist{font-family:'Space Mono',monospace;font-size:10px;max-height:120px;overflow-y:auto}
+.le{display:flex;gap:9px;padding:3px 0;border-bottom:1px solid #1a2e1b;align-items:flex-start}
+.lt{color:#3b6d44;min-width:58px;flex-shrink:0}
+.lk{min-width:44px;flex-shrink:0}
+.lk.mqtt{color:#5DCAA5}.lk.data{color:#97C459}.lk.pump{color:#85B7EB}.lk.auto{color:#EF9F27}.lk.err{color:#F09595}
+.lm{color:#a0c8a2;word-break:break-all}
+.auto-status{display:flex;align-items:center;gap:8px;background:#0d1a0e;border:1px solid #1e3a1f;border-radius:8px;padding:9px 13px;margin-top:8px}
+.auto-dot{width:8px;height:8px;border-radius:50%;background:#2a4a2c;transition:background .3s}
+.auto-dot.armed{background:#3B6D11;animation:blink 2s infinite}
+.auto-dot.triggered{background:#EF9F27;animation:blink .5s infinite}
+.auto-label{font-size:11px;color:#6a9a6c}
+.auto-val{font-family:'Space Mono',monospace;font-size:11px;color:#C0DD97;margin-left:auto}
+@media(max-width:700px){
+  .metrics{grid-template-columns:repeat(2,1fr)}
+  .grid-main{grid-template-columns:1fr}
+  .sim-grid{grid-template-columns:1fr}
+  .analysis-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="logo">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#C0DD97" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2a9 9 0 0 1 9 9c0 5-4 9-9 9s-9-4-9-9a9 9 0 0 1 9-9z"/>
+        <path d="M12 7v10M9 10l3-3 3 3"/>
+      </svg>
+    </div>
+    <div>
+      <div class="brand-name">SmartFarm / plant1</div>
+      <div class="brand-sub">Auto Watering Dashboard</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <div class="auto-dot armed" id="ado"></div>
+    <span id="auto-mode-label" style="font-size:11px;color:#3B6D11">Auto: ARMED</span>
+    <div class="pill">
+      <span class="dot off" id="cdot"></span>
+      <span id="ctext">Disconnected</span>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+
+  <div class="conn-row">
+    <div class="fg" style="max-width:210px">
+      <div class="fl">Broker (WSS)</div>
+      <input class="fi" id="broker" value="broker.hivemq.com">
+    </div>
+    <div class="fg" style="max-width:80px">
+      <div class="fl">Port</div>
+      <input class="fi" id="port" value="8884">
+    </div>
+    <button class="bcn" id="bcn" onclick="toggleConn()">Connect</button>
+    <button class="bdemo" id="bdemo" onclick="toggleDemo()">Demo Mode</button>
+    <div style="font-size:10px;color:#3b6d44;line-height:1.5">
+        SUB:<br>
+        <span style="color:#5DCAA5;font-family:'Space Mono',monospace">
+            smartfarm/plant1/soil
+        </span><br>
+        <span style="color:#5DCAA5;font-family:'Space Mono',monospace">
+            smartfarm/plant1/status
+        </span><br><br>
+        PUB:<br>
+        <span style="color:#5DCAA5;font-family:'Space Mono',monospace">
+            smartfarm/plant1/cmd → ON
+        </span><br>
+        <span style="color:#5DCAA5;font-family:'Space Mono',monospace">
+            smartfarm/plant1/config → JSON
+        </span><br>
+        <span style="color:#5DCAA5;font-family:'Space Mono',monospace">
+            smartfarm/plant1/sim → moisture / DRY / WET / RESET
+        </span>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="mc" id="mc-m">
+      <div class="ml">ความชื้นในดิน</div>
+      <div class="mv"><span id="v-m">--</span><span class="mu">%</span></div>
+      <div class="ms" id="s-m">กำลังรอข้อมูล...</div>
+      <div class="mbar"><div class="mfill" id="mbar" style="width:0%"></div></div>
+    </div>
+    <div class="mc" id="mc-p">
+      <div class="ml">ปั๊มน้ำ</div>
+      <div class="mv" id="v-p" style="font-size:15px;padding-top:4px">หยุดทำงาน</div>
+      <div class="ms" id="s-p">—</div>
+    </div>
+    <div class="mc">
+      <div class="ml">จำนวนครั้งรดน้ำวันนี้</div>
+      <div class="mv"><span id="v-ev">0</span></div>
+      <div class="ms" id="s-ev">ประมาณ 0 ml</div>
+    </div>
+    <div class="mc" id="mc-drop">
+      <div class="ml">อัตราการลดลงของความชื้น</div>
+      <div class="mv"><span id="v-drop">--</span><span class="mu">%/ชม</span></div>
+      <div class="ms">อัตราการสูญเสียความชื้นของดิน</div>
+    </div>
+    <div class="mc info">
+      <div class="ml">รดน้ำครั้งถัดไป</div>
+      <div class="mv" id="v-eta" style="font-size:13px;padding-top:3px">--</div>
+      <div class="ms" id="s-eta">เวลาคาดการณ์ก่อนรดน้ำอัตโนมัติ</div>
+    </div>
+  </div>
+
+  <div class="grid-main">
+    <div class="panel">
+      <div class="ph">
+        <span class="pt">Moisture history</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a9a6c">
+            <span style="width:10px;height:2px;background:#5DCAA5;display:inline-block;border-radius:1px"></span>moisture
+          </span>
+          <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#6a9a6c">
+            <span style="width:10px;height:0;border-top:2px dashed #EF9F27;display:inline-block"></span>threshold
+          </span>
+          <span class="tbadge" id="lupd">no data</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="mainChart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><span class="pt">Control</span></div>
+      <div class="ctrl">
+        <button class="pbtn" id="pbtn" onclick="forceWater()">
+          <span class="pi">💧</span>
+          <span class="pl">Force Water Now</span>
+          <span class="ps">Publish smartfarm/plant1/cmd → ON</span>
+        </button>
+        <div class="tpanel">
+          <div class="section-title" style="margin-bottom:10px">Auto Threshold Settings</div>
+          <div class="tr">
+            <span class="trl">Water below</span>
+            <input type="range" id="sl-low" min="10" max="65" value="30" step="1" oninput="onThreshChange()">
+            <span class="trv" id="tv-low">30%</span>
+          </div>
+          <div class="tr">
+            <span class="trl">Stop above</span>
+            <input type="range" id="sl-high" min="50" max="90" value="70" step="1" oninput="onThreshChange()">
+            <span class="trv" id="tv-high">70%</span>
+          </div>
+          <div class="tr">
+            <span class="trl">Duration</span>
+            <input type="range" id="sl-dur" min="1" max="30" value="5" step="1" oninput="onThreshChange()">
+            <span class="trv" id="tv-dur">5s</span>
+          </div>
+          <div class="auto-status">
+            <div class="auto-dot armed" id="ado2"></div>
+            <span class="auto-label" id="albl">Auto watering armed</span>
+            <span class="auto-val" id="aval">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sim-panel">
+    <div class="ph">
+      <span class="pt">Moisture Simulator</span>
+      <div style="display:flex;gap:6px">
+        <button class="bdemo" onclick="simDry()" style="font-size:10px;padding:4px 10px;height:auto">ดินแห้ง</button>
+        <button class="bdemo" onclick="simWet()" style="font-size:10px;padding:4px 10px;height:auto">ดินชื้น</button>
+        <button class="bdemo" onclick="simReset()" style="font-size:10px;padding:4px 10px;height:auto">ดินปกติ</button>
+      </div>
+    </div>
+    <div class="sim-grid">
+      <div class="sim-card">
+        <div class="big-slider-lbl">Manual Moisture Control</div>
+        <div class="big-slider-val" id="sim-disp">50%</div>
+        <input type="range" id="sim-slider" min="0" max="100" value="50" step="1" oninput="onSimSlider()" style="width:100%;margin:6px 0">
+        <div class="dial-bg">
+          <div class="dial-fill" id="dial-fill" style="width:50%">
+            <div class="dial-thumb"></div>
+          </div>
+          <span class="zone-marker zone-dry" id="mark-low" style="left:30%">▼ 30%</span>
+          <span class="zone-marker zone-ok" id="mark-high" style="left:70%">▼ 70%</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:#3b6d44;font-family:'Space Mono',monospace">
+          <span>0%</span>
+          <span id="zone-label" style="color:#6deb07">OPTIMAL</span>
+          <span>100%</span>
+        </div>
+        <div id="auto-trigger-msg" style="margin-top:8px;font-size:10px;color:#EF9F27;font-family:'Space Mono',monospace;min-height:14px;text-align:center"></div>
+      </div>
+      <div class="sim-card">
+        <div class="big-slider-lbl">Drain Speed (% per tick)</div>
+        <div class="big-slider-val" id="drain-disp">0.3%</div>
+        <input type="range" id="drain-slider" min="0" max="30" value="3" step="1" oninput="onDrainChange()" style="width:100%;margin:6px 0">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:#3b6d44;font-family:'Space Mono',monospace;margin-bottom:14px">
+          <span>0 (no drain)</span><span>3% (fast)</span>
+        </div>
+        <div class="big-slider-lbl" style="margin-bottom:6px">Watering Boost (+%)</div>
+        <div class="big-slider-val" id="boost-disp">+25%</div>
+        <input type="range" id="boost-slider" min="5" max="60" value="25" step="1" oninput="onBoostChange()" style="width:100%;margin:4px 0">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:#3b6d44;font-family:'Space Mono',monospace">
+          <span>+5%</span><span>+60%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="analysis-grid">
+    <div class="ac">
+        <div class="at">อัตราการรดน้ำ</div>
+        <div class="av" id="an1">-- นาที</div>
+        <div class="ad">เฉลี่ยกี่นาทีต่อการรดน้ำ 1 ครั้ง</div>
+        <div class="apb"><div class="apf" id="ap1" style="width:0%"></div></div>
+    </div>
+    <div class="ac">
+        <div class="at">Min / Max Moisture</div>
+        <div class="av" id="an2" style="font-size:14px;padding-top:3px">-- / --%</div>
+        <div class="ad">ความชื้นต่ำสุด และสูงสุดที่เคยวัดได้</div>
+        <div class="apb"><div class="apf" id="ap2" style="width:0%;background:#85B7EB"></div></div>
+    </div>
+    <div class="ac">
+        <div class="at">Avg Moisture</div>
+        <div class="av" id="an3">-- %</div>
+        <div class="ad">ค่าเฉลี่ยความชื้นตลอดการทำงาน</div>
+        <div class="apb"><div class="apf" id="ap3" style="width:0%;background:#EF9F27"></div></div>
+    </div>
+  </div>
+  <div class="analysis-grid">
+    <div class="ac">
+        <div class="at">Time Since Last Watering</div>
+        <div class="av" id="an4">-- </div>
+        <div class="ad">เวลาที่ผ่านมาตั้งแต่รดน้ำครั้งล่าสุด</div>
+        <div class="apb"><div class="apf" id="ap4" style="width:0%;background:#EF9F27"></div></div>
+    </div>
+    <div class="ac">
+        <div class="at">Pump On Time Total</div>
+        <div class="av" id="an5">0 วิ</div>
+        <div class="ad">ปั๊มทำงานสะสมทั้งหมด</div>
+        <div class="apb"><div class="apf" id="ap5" style="width:0%;background:#5DCAA5"></div></div>
+    </div>
+    <div class="ac">
+        <div class="at">ประมาณการใช้น้ำต่อวัน</div>
+        <div class="av" id="an6">0 ml</div>
+        <div class="ad">คำนวณจากจำนวนครั้งการรดน้ำ × ระยะเวลา</div>
+        <div class="apb"><div class="apf" id="ap6" style="width:0%;background:#F09595"></div></div>
+    </div>
+  </div>
+
+  
+
+  <div class="event-log-panel">
+    <div class="ph">
+      <span class="pt">Watering Event Log</span>
+      <span class="tbadge" id="evt-count">0 events</span>
+    </div>
+    <div style="overflow:auto; max-height:260px;">
+      <table class="event-table">
+        <thead>
+          <tr><th>Time</th><th>Type</th><th>Pre %</th><th>Post %</th><th>Delta</th><th>Duration</th><th>Trigger</th></tr>
+        </thead>
+        <tbody id="evt-tbody">
+          <tr><td colspan="7" class="muted" style="text-align:center;padding:12px">No events yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="logpanel">
+    <div class="ph">
+      <span class="pt">System Log</span>
+      <button onclick="document.getElementById('loglist').innerHTML=''" style="background:transparent;border:1px solid #2a4a2c;border-radius:5px;padding:2px 9px;font-size:9px;color:#6a9a6c;cursor:pointer;font-family:'Space Mono',monospace">Clear</button>
+    </div>
+    <div class="loglist" id="loglist">
+      <div class="le"><span class="lt">--:--:--</span><span class="lk mqtt">SYS</span><span class="lm">SmartFarm Dashboard ready — Connect to Wokwi หรือกด Demo Mode</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const TOPICS={
+  SOIL:'smartfarm/plant1/soil',
+  CMD:'smartfarm/plant1/cmd',
+  STATUS:'smartfarm/plant1/status',
+  SIM:'smartfarm/plant1/sim'   // 👈 เพิ่ม
+};
+let totalPumpSecs = 0;
+let lastWaterTime = null;
+let minMoisture = 100;
+let maxMoisture = 0;
+let mqttClient=null,connected=false,demoMode=false,demoTimer=null;
+let moisture=55,pumpState=false,pumpTimeout=null;
+let waterEvents=[],totalMl=0;
+let moistHist=[],timeHist=[],retentions=[],postDeltas=[],dropRates=[];
+let lastPumpOn=null,pumpOnMoist=null,dryAlarmTime=null;
+let retentionStart=null;
+let retentionStartMoist=null;
+let autoWaterCooldown=false;
+let dryToWaterTimes=[];
+let configTimer;
+const MAX=80;
+
+const mainCtx=document.getElementById('mainChart').getContext('2d');
+const mainChart=new Chart(mainCtx,{
+  type:'line',
+  data:{
+    labels:[],
+    datasets:[
+      {label:'Moisture',data:[],borderColor:'#5DCAA5',backgroundColor:'rgba(29,158,117,.08)',borderWidth:2,pointRadius:0,fill:true,tension:.4},
+      {label:'Threshold Low',data:[],borderColor:'#EF9F27',borderWidth:1.5,borderDash:[5,3],pointRadius:0,fill:false},
+      {label:'Threshold High',data:[],borderColor:'#3B6D11',borderWidth:1,borderDash:[3,4],pointRadius:0,fill:false}
+    ]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.y.toFixed(1)+'%'}}},
+    scales:{
+      x:{ticks:{color:'#6a9a6c',font:{family:'Space Mono',size:9},maxTicksLimit:8},grid:{color:'rgba(42,74,44,.4)'}},
+      y:{min:0,max:100,ticks:{color:'#6a9a6c',font:{family:'Space Mono',size:9},callback:v=>v+'%'},grid:{color:'rgba(42,74,44,.4)'}}
+    }
+  }
+});
+function sendConfigDebounced(){
+  clearTimeout(configTimer);
+  configTimer = setTimeout(sendConfig, 200);
+}
+function log(kind,msg){
+  const t=new Date().toTimeString().slice(0,8);
+  const ll=document.getElementById('loglist');
+  const d=document.createElement('div');d.className='le';
+  const km={SYS:'mqtt',MQTT:'mqtt',DATA:'data',PUMP:'pump',AUTO:'auto',ERR:'err'};
+  d.innerHTML=`<span class="lt">${t}</span><span class="lk ${km[kind]||'mqtt'}">${kind}</span><span class="lm">${msg}</span>`;
+  ll.insertBefore(d,ll.firstChild);
+  while(ll.children.length>100)ll.removeChild(ll.lastChild);
+}
+
+function getLow(){return parseInt(document.getElementById('sl-low').value);}
+function getHigh(){return parseInt(document.getElementById('sl-high').value);}
+function getDur(){return parseInt(document.getElementById('sl-dur').value);}
+function sendConfig(){
+  if(mqttClient && connected){
+
+    const config = {
+      low: getLow(),
+      high: getHigh(),
+      dur: getDur(),
+      drain: parseFloat(document.getElementById('drain-slider').value) / 10,
+      boost: parseInt(document.getElementById('boost-slider').value)
+    };
+
+    mqttClient.publish("smartfarm/plant1/config", JSON.stringify(config));
+    mqttClient.publish("smartfarm/plant1/sim","MANUAL");
+    log('MQTT','Config → ' + JSON.stringify(config));
+  }
+}
+function onThreshChange(){
+  document.getElementById('tv-low').textContent=getLow()+'%';
+  document.getElementById('tv-high').textContent=getHigh()+'%';
+  document.getElementById('tv-dur').textContent=getDur()+'s';
+  document.getElementById('mark-low').textContent='▼ '+getLow()+'%';
+  document.getElementById('mark-low').style.left=getLow()+'%';
+  document.getElementById('mark-high').textContent='▼ '+getHigh()+'%';
+  document.getElementById('mark-high').style.left=getHigh()+'%';
+  updateAutoStatus();
+  updateETA();
+
+  sendConfigDebounced(); // 👈 เรียกแทน
+}
+function onDrainChange(){
+  const val = parseInt(document.getElementById('drain-slider').value) / 10;
+
+  document.getElementById('drain-disp').textContent = val.toFixed(1) + '%';
+
+  sendConfigDebounced(); // 👈 ต้องมี
+}
+function onBoostChange(){
+  const val = document.getElementById('boost-slider').value;
+
+  document.getElementById('boost-disp').textContent =
+    '+' + val + '%';
+
+  sendConfigDebounced();
+}
+
+function updateAutoStatus(){
+  const low=getLow(),m=moisture;
+  const ado=document.getElementById('ado'),ado2=document.getElementById('ado2');
+  const albl=document.getElementById('albl'),aval=document.getElementById('aval');
+  const aml=document.getElementById('auto-mode-label');
+  if(pumpState){
+    [ado,ado2].forEach(e=>e.className='auto-dot triggered');
+    albl.textContent='Pumping...';aval.textContent='';
+    aml.textContent='Auto: PUMPING';aml.style.color='#5DCAA5';
+  }else if(m<low){
+    [ado,ado2].forEach(e=>e.className='auto-dot triggered');
+    albl.textContent='TRIGGERED — below threshold';
+    aval.textContent=m.toFixed(1)+'% < '+low+'%';
+    aml.textContent='Auto: TRIGGERED';aml.style.color='#EF9F27';
+  }else{
+    [ado,ado2].forEach(e=>e.className='auto-dot armed');
+    albl.textContent='Auto watering armed';
+    aval.textContent='ความชื้นปัจจุบัน: '+m.toFixed(0)+'%';
+    aml.textContent='Auto: ARMED';aml.style.color='#3B6D11';
+  }
+}
+
+function updateETA(){
+  const low = getLow();
+  if(dropRates.length < 3){
+    document.getElementById('v-eta').textContent = '--';
+    return;
+  }
+  
+  const avgDrop = dropRates.slice(-10).reduce((a,b) => a+b, 0) / Math.min(dropRates.length, 10);
+  
+  if(avgDrop <= 0){
+    document.getElementById('v-eta').textContent = 'Never';
+    return;
+  }
+
+  // avgDrop = % ต่อ 1 tick (1 วินาที)
+  const secsLeft = (moisture - low) / avgDrop;
+
+  if(secsLeft <= 0){
+    document.getElementById('v-eta').textContent = 'Now!';
+  } else if(secsLeft < 60){
+    document.getElementById('v-eta').textContent = secsLeft.toFixed(0) + ' sec';  // ✅ แสดงเป็นวินาที
+  } else if(secsLeft < 3600){
+    document.getElementById('v-eta').textContent = (secsLeft / 60).toFixed(1) + ' min';
+  } else {
+    document.getElementById('v-eta').textContent = (secsLeft / 3600).toFixed(1) + ' hr';
+  }
+
+  document.getElementById('v-drop').textContent = (avgDrop * 60).toFixed(1); // %/นาที
+}
+
+function onMoisture(v){
+  const prev=moisture;
+  moisture=Math.min(100,Math.max(0,parseFloat(v)));
+  if(moisture < minMoisture) minMoisture = moisture;
+  if(moisture > maxMoisture) maxMoisture = moisture;
+  document.getElementById('v-m').textContent=moisture.toFixed(1);
+  document.getElementById('mbar').style.width=moisture+'%';
+  const low=getLow(),high=getHigh();
+  const mc=document.getElementById('mc-m');
+  mc.className='mc';
+  let sub='Optimal';
+  if(moisture<low){mc.className='mc warn';sub='Dry — auto watering queued';}
+  else if(moisture<low+10){mc.className='mc warn';sub='Getting dry';}
+  else if(moisture>high){sub='Saturated';}
+  document.getElementById('s-m').textContent=sub;
+  if (prev > moisture && !pumpState) {
+
+    const diff = prev - moisture;
+
+    // กันค่ากระโดดผิดปกติ
+    if (diff < 5) {
+        dropRates.push(diff);
+    }
+
+    if (dropRates.length > 30) {
+        dropRates.shift();
+    }
+  }
+  const now=new Date();
+  moistHist.push(parseFloat(moisture.toFixed(2)));timeHist.push(now.toTimeString().slice(0,5));
+  if(moistHist.length>MAX){moistHist.shift();timeHist.shift();}
+  mainChart.data.labels=[...timeHist];
+  mainChart.data.datasets[0].data=[...moistHist];
+  mainChart.data.datasets[1].data=new Array(timeHist.length).fill(low);
+  mainChart.data.datasets[2].data=new Array(timeHist.length).fill(high);
+  mainChart.update('none');
+  document.getElementById('lupd').textContent=now.toTimeString().slice(0,8);
+  document.getElementById('sim-disp').textContent=moisture.toFixed(1)+'%';
+  document.getElementById('dial-fill').style.width=moisture+'%';
+  updateZoneLabel();updateAutoStatus();updateETA();
+  if(!pumpState&&moisture<low&&(demoMode||connected)){
+    if(!dryAlarmTime)dryAlarmTime=new Date();
+    document.getElementById('auto-trigger-msg').textContent='AUTO TRIGGER: '+moisture.toFixed(1)+'% < '+low+'%';
+    triggerAutoWater();
+  }else{
+    if(moisture>=low)dryAlarmTime=null;
+    document.getElementById('auto-trigger-msg').textContent='';
+  }
+  if(retentionStart && retentionStartMoist && !pumpState){
+
+    const diff = retentionStartMoist - moisture;
+
+    // ดินลดลง 10%
+    if(diff >= 2){
+
+        const mins =
+        (new Date() - retentionStart) / 60000;
+
+        retentions.push(mins);
+
+        if(retentions.length > 20)
+        retentions.shift();
+
+        retentionStart = null;
+        retentionStartMoist = null;
+
+        updateAnalysis();
+    }
+  }
+}
+
+function triggerAutoWater(){
+
+  if(pumpState || autoWaterCooldown)
+    return;
+  console.log('dryAlarmTime:', dryAlarmTime, 'now:', new Date());
+  autoWaterCooldown = true;
+
+  setTimeout(() => autoWaterCooldown = false, 8000);
+
+  // ⏱ เวลาจาก dry → เริ่มรดน้ำ
+  if(dryAlarmTime){
+
+    const mins = (new Date() - dryAlarmTime) / 60000;
+    if (mins > 0.01) {  // ✅ กัน 0 ms ที่เกิดจาก trigger เร็วเกิน
+        dryToWaterTimes.push(mins);
+        if (dryToWaterTimes.length > 20) dryToWaterTimes.shift();
+    }
+    dryAlarmTime = null;
+  }
+
+  log(
+    'AUTO',
+    'Auto trigger! moisture=' +
+    moisture.toFixed(1) +
+    '% threshold=' +
+    getLow() + '%'
+  );
+
+  startPump('auto');
+}
+
+function startPump(type){
+  if(pumpState)return;
+  if(dryAlarmTime){
+    const mins = (new Date() - dryAlarmTime) / 60000;
+    if(mins > 0.005){
+      dryToWaterTimes.push(mins);
+      if(dryToWaterTimes.length > 20) dryToWaterTimes.shift();
+      updateAnalysis();
+    }
+    dryAlarmTime = null;
+  }
+  pumpOnMoist=moisture;lastPumpOn=new Date();pumpState=true;
+  document.getElementById('mc-p').className='mc pumping';
+  document.getElementById('v-p').textContent=type==='auto'?'AUTO':type==='wokwi'?'WOKWI':'MANUAL';
+  document.getElementById('s-p').textContent='Running '+getDur()+'s';
+  document.getElementById('pbtn').classList.add('on');
+  log('PUMP','Pump ON ('+type+') pre='+pumpOnMoist.toFixed(1)+'%');
+  if(mqttClient&&connected)mqttClient.publish(TOPICS.CMD,'ON',{qos:0});
+  if(pumpTimeout)clearTimeout(pumpTimeout);
+  const dur=getDur();
+  pumpTimeout=setTimeout(()=>stopPump(type,dur),dur*1000);
+}
+
+function stopPump(type,dur){
+  pumpState=false;
+  document.getElementById('mc-p').className='mc';
+  document.getElementById('v-p').textContent='IDLE';
+  document.getElementById('s-p').textContent='Last: '+new Date().toTimeString().slice(0,8);
+  document.getElementById('pbtn').classList.remove('on');
+  log('PUMP','Pump OFF — dur='+dur+'s');
+  totalPumpSecs += dur;
+  lastWaterTime = new Date();
+
+  const boostVal=parseInt(document.getElementById('boost-slider').value);
+  
+
+  if (demoMode) {
+    const boosted = Math.min(100, moisture + boostVal);
+    moisture = boosted;
+    document.getElementById('sim-slider').value = boosted;
+    onMoisture(boosted);
+  }
+
+  const postM = moisture;
+  const delta=postM-pumpOnMoist;
+  postDeltas.push(delta);
+
+  totalMl+=dur*30;
+
+  retentionStart = new Date();
+  retentionStartMoist = postM;
+
+  const evObj={time:new Date().toTimeString().slice(0,8),type,pre:pumpOnMoist.toFixed(1),post:postM.toFixed(1),delta:(delta>=0?'+':'')+delta.toFixed(1),dur:dur+'s',ml: dur * 30};
+  waterEvents.push(evObj);
+  document.getElementById('v-ev').textContent=waterEvents.length;
+  document.getElementById('s-ev').textContent='~'+totalMl+' ml est.';
+  document.getElementById('evt-count').textContent=waterEvents.length+' events';
+  const tb=document.getElementById('evt-tbody');
+  if(waterEvents.length===1)tb.innerHTML='';
+  const row=document.createElement('tr');
+  const badge=`<span class="badge ${type}">${type.toUpperCase()}</span>`;
+  row.innerHTML=`<td>${evObj.time}</td><td>${badge}</td><td>${evObj.pre}%</td><td>${evObj.post}%</td><td style="color:${delta>=0?'#5DCAA5':'#F09595'}">${evObj.delta}%</td><td>${evObj.dur}</td><td class="muted">${type==='auto'?'moisture<'+getLow()+'%':'manual'}</td>`;
+  tb.insertBefore(row,tb.firstChild);
+  while(tb.children.length>20)tb.removeChild(tb.lastChild);
+  updateAnalysis();updateAutoStatus();
+}
+
+function forceWater(){
+  if(!connected&&!demoMode){log('ERR','Not connected');return;}
+  if(pumpState){log('PUMP','Already running');return;}
+  if(mqttClient&&connected)mqttClient.publish(TOPICS.CMD,'ON',{qos:0});
+  startPump('force');
+}
+
+function updateZoneLabel(){
+  const lbl=document.getElementById('zone-label');
+  if(moisture<getLow()){lbl.textContent='DRY ZONE';lbl.style.color='#E24B4A';}
+  else if(moisture>getHigh()){lbl.textContent='SATURATED';lbl.style.color='#5DCAA5';}
+  else{lbl.textContent='OPTIMAL';lbl.style.color='#97C459';}
+}
+
+function onSimSlider(){
+
+  const v = parseInt(document.getElementById('sim-slider').value);
+
+  onMoisture(v);
+
+  if(mqttClient && connected){
+
+    // 👇 เข้า Manual mode
+    //mqttClient.publish("smartfarm/plant1/sim","MANUAL");
+
+    mqttClient.publish("smartfarm/plant1/sim", String(v));
+
+    log('MQTT','Manual moisture = '+v);
+  }
+}
+
+function simDry(){
+  if(mqttClient && connected){
+    mqttClient.publish(TOPICS.SIM,'DRY');
+    log('MQTT','Send DRY → Wokwi');
+  }
+}
+
+function simWet(){
+  if(mqttClient && connected){
+    mqttClient.publish(TOPICS.SIM,'WET');
+    log('MQTT','Send WET → Wokwi');
+  }
+}
+
+function simReset(){
+  if(mqttClient && connected){
+    mqttClient.publish(TOPICS.SIM,'RESET');
+    log('MQTT','Send RESET → Wokwi');
+  }
+}
+
+
+function updateAnalysis(){
+
+  // 1. อัตราการรดน้ำ
+  if(waterEvents.length >= 2){
+    const times = waterEvents.map(e => e.time);
+    // คำนวณจากจำนวนครั้ง vs เวลาที่ผ่านมา
+    const totalMins = moistHist.length / 60; // ประมาณจาก tick (1 tick = 1 วิ)
+    const rate = totalMins / waterEvents.length;
+    document.getElementById('an1').textContent = rate < 1
+      ? (rate * 60).toFixed(0) + ' วิ/ครั้ง'
+      : rate.toFixed(1) + ' นาที/ครั้ง';
+    document.getElementById('ap1').style.width = Math.min(rate / 10 * 100, 100).toFixed(0) + '%';
+  } else {
+    document.getElementById('an1').textContent = 'รอข้อมูล...';
+  }
+
+  // 2. Min / Max
+  if(moistHist.length > 0){
+    document.getElementById('an2').textContent =
+      minMoisture.toFixed(1) + ' / ' + maxMoisture.toFixed(1) + '%';
+    document.getElementById('ap2').style.width = maxMoisture.toFixed(0) + '%';
+  }
+
+  // 3. Avg Moisture
+  if(moistHist.length > 0){
+    const avg = moistHist.reduce((a,b) => a+b, 0) / moistHist.length;
+    document.getElementById('an3').textContent = avg.toFixed(1) + '%';
+    document.getElementById('ap3').style.width = avg.toFixed(0) + '%';
+  }
+
+  // 4. Time Since Last Watering
+  if(lastWaterTime){
+    const secs = Math.floor((new Date() - lastWaterTime) / 1000);
+    document.getElementById('an4').textContent = secs < 60
+      ? secs + ' วิ'
+      : (secs / 60).toFixed(1) + ' นาที';
+    document.getElementById('ap4').style.width = Math.min(secs / 300 * 100, 100).toFixed(0) + '%';
+  }
+
+  // 5. Pump On Time Total
+  document.getElementById('an5').textContent = (totalPumpSecs / 2) < 60
+    ? (totalPumpSecs / 2).toFixed(0) + ' วิ'
+    : ((totalPumpSecs / 2) / 60).toFixed(1) + ' นาที';
+  document.getElementById('ap5').style.width = Math.min((totalPumpSecs / 2) / 120 * 100, 100).toFixed(0) + '%';
+
+  // 6. ประมาณการใช้น้ำ
+  const dailyMl = waterEvents.reduce((sum,e) => sum + e.ml, 0);
+  document.getElementById('an6').textContent = dailyMl + ' ml';
+  document.getElementById('ap6').style.width = Math.min(dailyMl / 500 * 100, 100).toFixed(0) + '%';
+}
+
+function toggleDemo(){
+  const btn=document.getElementById('bdemo');
+  if(demoMode){
+    demoMode=false;clearInterval(demoTimer);
+    btn.classList.remove('on');btn.textContent='Demo Mode';
+    if(!connected){document.getElementById('cdot').className='dot off';document.getElementById('ctext').textContent='Disconnected';}
+    log('SYS','Demo mode stopped');return;
+  }
+  const etaTimer = setInterval(() => {
+    if(lastWaterTime){
+        const secs = Math.floor((new Date() - lastWaterTime) / 1000);
+        document.getElementById('an4').textContent = secs < 60
+        ? secs + ' วิ'
+        : (secs / 60).toFixed(1) + ' นาที';
+        document.getElementById('ap4').style.width =
+        Math.min(secs / 300 * 100, 100).toFixed(0) + '%';
+    }
+    }, 1000);
+  demoMode=true;btn.classList.add('on');btn.textContent='Stop Demo';
+  document.getElementById('cdot').className='dot';document.getElementById('ctext').textContent='Demo';
+  log('SYS','Demo mode ON — ลาก slider หรือรอ drain อัตโนมัติ');
+  demoTimer=setInterval(()=>{
+    if(!pumpState){
+      const drain=parseInt(document.getElementById('drain-slider').value)/10;
+      moisture=Math.max(0,moisture-drain+(Math.random()-.5)*.3);
+      document.getElementById('sim-slider').value=moisture;
+      onMoisture(moisture);
+      log('DATA','soil={moisture:'+moisture.toFixed(1)+',pump:false}');
+    }
+  },2000);
+}
+
+function setConnUI(on){
+  connected=on;
+  document.getElementById('cdot').className=on?'dot':'dot off';
+  document.getElementById('ctext').textContent=on?'Connected':'Disconnected';
+  document.getElementById('bcn').textContent=on?'Disconnect':'Connect';
+  document.getElementById('bcn').className=on?'bcn disc':'bcn';
+}
+
+function toggleConn(){
+  if(connected){mqttClient&&mqttClient.end();setConnUI(false);log('MQTT','Disconnected');return;}
+  const url='wss://'+document.getElementById('broker').value.trim()+':'+document.getElementById('port').value+'/mqtt';
+  log('MQTT','Connecting → '+url);
+  document.getElementById('cdot').className='dot warn';
+  try{
+    mqttClient=mqtt.connect(url,{clientId:'plant_'+Math.random().toString(36).slice(2,6),clean:true,connectTimeout:8000,keepalive:30,reconnectPeriod:0});
+    mqttClient.on('connect',()=>{
+      setConnUI(true);
+      mqttClient.subscribe(TOPICS.SOIL);mqttClient.subscribe(TOPICS.STATUS);
+      log('MQTT','Connected! Subscribed → soil + status');
+    });
+    mqttClient.on('message',(topic,payload)=>{
+      const msg=payload.toString().trim();
+      log('DATA',topic.split('/').pop()+'='+msg.slice(0,60));
+      if(topic===TOPICS.SOIL){
+        try{
+          const d=JSON.parse(msg);
+          if(d.moisture!==undefined)onMoisture(parseFloat(d.moisture));
+          if(d.pump!==undefined){
+            const p=d.pump===true||d.pump==='true'||d.pump===1;
+            if(p&&!pumpState)startPump('wokwi');
+            else if(!p&&pumpState)stopPump('wokwi',getDur());
+          }
+        }catch(e){const n=parseFloat(msg);if(!isNaN(n))onMoisture(n);}
+      }else if(topic===TOPICS.STATUS){
+        if(msg==='PUMP_ON'&&!pumpState){
+          if(dryAlarmTime){
+            const mins=(new Date()-dryAlarmTime)/60000;
+            dryToWaterTimes.push(mins);
+            if(dryToWaterTimes.length>20)dryToWaterTimes.shift();
+            dryAlarmTime=null;
+          }
+          startPump('wokwi');
+        }
+        else if(msg==='PUMP_OFF'&&pumpState)stopPump('wokwi',getDur());
+      }
+    });
+    mqttClient.on('error',e=>{log('ERR',e.message);setConnUI(false);});
+    mqttClient.on('close',()=>{if(connected){setConnUI(false);log('MQTT','Connection closed');}});
+  }catch(e){log('ERR',e.message);setConnUI(false);}
+}
+setInterval(() => {
+  if(lastWaterTime){
+    const secs = Math.floor((new Date() - lastWaterTime) / 1000);
+    document.getElementById('an4').textContent = secs < 60
+      ? secs + ' วิ'
+      : (secs / 60).toFixed(1) + ' นาที';
+    document.getElementById('ap4').style.width =
+      Math.min(secs / 300 * 100, 100).toFixed(0) + '%';
+  }
+}, 1000);
+
+onThreshChange();
+updateAutoStatus();
+log('SYS','Dashboard ready — Connect หรือ Demo Mode เพื่อเริ่ม');
+</script>
+</body>
+</html>
